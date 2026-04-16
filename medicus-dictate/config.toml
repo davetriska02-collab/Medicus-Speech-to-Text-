@@ -1,0 +1,35 @@
+# Medicus Dictate configuration.
+# Edit and restart the app (or use "Reload config" from the tray menu).
+
+[hotkey]
+# pynput format: <ctrl>, <alt>, <shift>, <cmd>, and letter/space keys.
+combo = "<ctrl>+<alt>+<space>"
+
+[audio]
+sample_rate = 16000
+channels = 1
+# Input device index. Comment out to use the system default.
+# Run `python -m sounddevice` to list devices.
+# device = 0
+
+[model]
+# One of: tiny.en, base.en, small.en, medium.en, large-v3
+name = "small.en"
+# "cpu" or "cuda"
+device = "cpu"
+# "int8" (CPU), "float16" (CUDA), "int8_float16" (CUDA low-VRAM)
+compute_type = "int8"
+# Language hint. Leave empty to auto-detect. ".en" models ignore this.
+language = "en"
+
+[injection]
+# "paste" (clipboard + Ctrl+V) or "type" (character-by-character)
+mode = "paste"
+# Small delay before injecting, so the user's focus has settled.
+pre_delay_ms = 50
+
+[postprocess]
+# Deferred to follow-up delivery (step 7). Placeholder flags below.
+enable_number_words = false
+enable_unit_abbrev = false
+enable_bnf_frequencies = false
