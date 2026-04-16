@@ -20,9 +20,19 @@ from .tray import TrayApp
 
 
 def main(argv: list[str] | None = None) -> int:
-    argv = argv or sys.argv[1:]
-
-    cfg = config_mod.load()
+    try:
+        cfg = config_mod.load()
+    except FileNotFoundError:
+        print(
+            f"[medicus-dictate] config.toml not found at {config_mod.DEFAULT_CONFIG_PATH}.\n"
+            "Copy the shipped config.toml next to the exe (or into the project root "
+            "for dev runs) and try again.",
+            file=sys.stderr,
+        )
+        return 2
+    except Exception as e:
+        print(f"[medicus-dictate] failed to load config: {e}", file=sys.stderr)
+        return 2
     print(f"[medicus-dictate] config loaded: model={cfg.model.name} "
           f"device={cfg.model.device} hotkey={cfg.hotkey.combo}")
 
@@ -40,8 +50,16 @@ def main(argv: list[str] | None = None) -> int:
     def on_toggle() -> None:
         state = bus.current
         if state == AppState.IDLE:
+            # Open the stream BEFORE flipping state, so a failure (bad device,
+            # mic already held) doesn't leave us stuck in RECORDING.
+            try:
+                recorder.start()
+            except Exception as e:
+                msg = f"{type(e).__name__}: {e}"
+                bus.last_error = f"audio start failed: {msg}"
+                bus.toast("Medicus Dictate — mic error", msg)
+                return
             bus.set(AppState.RECORDING)
-            recorder.start()
             threading.Thread(
                 target=_silence_watchdog,
                 args=(recorder, bus),
@@ -78,6 +96,9 @@ def main(argv: list[str] | None = None) -> int:
 
 
 def _process(audio, transcriber, injector, bus, cfg) -> None:
+    # Clear any stale error from a previous run so the menu / toast logic only
+    # surfaces problems from this invocation.
+    bus.last_error = ""
     try:
         text = transcriber.transcribe(audio)
         text = postprocess.process(text, cfg.postprocess)

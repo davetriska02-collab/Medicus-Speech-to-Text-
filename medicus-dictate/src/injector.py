@@ -7,6 +7,12 @@ import pyperclip
 
 from .config import InjectionConfig
 
+# Disable pyautogui's fail-safe: if the cursor happens to sit in a screen
+# corner when we paste, the default behaviour is to raise FailSafeException
+# and drop the transcription. For a dictation tool the user can't predict
+# where their cursor is, so this check does more harm than good.
+pyautogui.FAILSAFE = False
+
 
 class Injector:
     """Injects text into the focused field via clipboard paste or character typing."""

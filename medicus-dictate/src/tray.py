@@ -101,7 +101,10 @@ class TrayApp:
         self._icon.title = tooltip
         if state != AppState.RECORDING:
             self._icon.icon = self._static_images[state]
-        if state == AppState.IDLE and self._last_state == AppState.TRANSCRIBING:
+        # Surface any error raised during this pipeline run (transcribe OR
+        # inject). `last_error` is reset at the start of every _process call,
+        # so a stale error from a previous run won't re-toast.
+        if state == AppState.IDLE and self._last_state != AppState.IDLE:
             err = self.bus.last_error
             if err:
                 self._toast("Medicus Dictate — error", err)
