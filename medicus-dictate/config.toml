@@ -28,6 +28,29 @@ mode = "paste"
 # Small delay before injecting, so the user's focus has settled.
 pre_delay_ms = 50
 
+[commands]
+# Voice phrases that insert punctuation / newlines / case changes instead of
+# being typed literally. Built-in phrases include:
+#   "new line", "new paragraph", "full stop", "period", "comma",
+#   "question mark", "exclamation mark", "colon", "semicolon",
+#   "open/close bracket", "open/close parenthesis", "open/close quote",
+#   "hyphen", "cap <word>", "caps on ... caps off".
+enabled = true
+
+[smart]
+# "off"    — no grammar/formatting tidy; raw Whisper output is injected.
+# "rules"  — local regex tidy: sentence caps, "i" -> "I", punctuation spacing,
+#            collapse whitespace, remove duplicate punctuation. ZERO deps.
+# "ollama" — LOCAL Ollama LLM for grammar clean-up. Requires Ollama running
+#            on this machine (or on a private-IP internal server). The app
+#            REFUSES any endpoint that resolves to a public IP so patient
+#            text can't leak by mis-configuration.
+mode = "rules"
+ollama_endpoint = "http://localhost:11434"
+ollama_model = "llama3.2:3b"
+ollama_timeout_s = 8.0
+ollama_fallback_to_rules = true
+
 [postprocess]
 # Convert number words to digits: "twenty" -> "20", "two hundred" -> "200"
 enable_number_words = true

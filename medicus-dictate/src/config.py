@@ -57,12 +57,29 @@ class PostprocessConfig:
 
 
 @dataclass
+class CommandsConfig:
+    enabled: bool = True
+
+
+@dataclass
+class SmartConfig:
+    # "off" | "rules" | "ollama". Ollama is LOCAL-only (loopback / private IP).
+    mode: str = "rules"
+    ollama_endpoint: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
+    ollama_timeout_s: float = 8.0
+    ollama_fallback_to_rules: bool = True
+
+
+@dataclass
 class Config:
     hotkey: HotkeyConfig = field(default_factory=HotkeyConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
     injection: InjectionConfig = field(default_factory=InjectionConfig)
     postprocess: PostprocessConfig = field(default_factory=PostprocessConfig)
+    commands: CommandsConfig = field(default_factory=CommandsConfig)
+    smart: SmartConfig = field(default_factory=SmartConfig)
 
 
 def load(path: Path = DEFAULT_CONFIG_PATH) -> Config:
@@ -75,6 +92,8 @@ def load(path: Path = DEFAULT_CONFIG_PATH) -> Config:
         model=ModelConfig(**data.get("model", {})),
         injection=InjectionConfig(**data.get("injection", {})),
         postprocess=PostprocessConfig(**data.get("postprocess", {})),
+        commands=CommandsConfig(**data.get("commands", {})),
+        smart=SmartConfig(**data.get("smart", {})),
     )
     _validate(cfg)
     return cfg
@@ -89,3 +108,5 @@ def _validate(cfg: Config) -> None:
         raise ValueError(f"model.device must be 'cpu' or 'cuda', got {cfg.model.device}")
     if cfg.injection.mode not in ("paste", "type"):
         raise ValueError(f"injection.mode must be 'paste' or 'type', got {cfg.injection.mode}")
+    if cfg.smart.mode not in ("off", "rules", "ollama"):
+        raise ValueError(f"smart.mode must be 'off', 'rules' or 'ollama', got {cfg.smart.mode}")

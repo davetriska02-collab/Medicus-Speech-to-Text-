@@ -11,6 +11,8 @@ import traceback
 
 from . import config as config_mod
 from . import postprocess
+from . import smart
+from . import voice_commands
 from .hotkey import HotkeyListener
 from .injector import Injector
 from .recorder import Recorder
@@ -114,7 +116,10 @@ def _process(audio, transcriber, injector, bus, cfg) -> None:
     bus.last_error = ""
     try:
         text = transcriber.transcribe(audio)
+        if cfg.commands.enabled:
+            text = voice_commands.apply(text)
         text = postprocess.process(text, cfg.postprocess)
+        text = smart.tidy(text, cfg.smart)
         if not text.strip():
             bus.last_error = "no speech detected"
             return
