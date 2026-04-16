@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import threading
+from collections import deque
 from enum import Enum
-from typing import Callable, List, Optional
+from typing import Callable, Deque, List, Optional
 
 
 class AppState(Enum):
@@ -15,13 +16,14 @@ class AppState(Enum):
 class StateBus:
     """Thread-safe current-state holder with subscriber callbacks."""
 
-    def __init__(self) -> None:
+    def __init__(self, history_size: int = 5) -> None:
         self._state = AppState.IDLE
         self._lock = threading.Lock()
         self._listeners: List[Callable[[AppState], None]] = []
         self._last_transcript: str = ""
         self._last_error: str = ""
         self._toast_handler: Optional[Callable[[str, str], None]] = None
+        self._history: Deque[str] = deque(maxlen=history_size)
 
     @property
     def current(self) -> AppState:
@@ -77,3 +79,13 @@ class StateBus:
             handler(title, body)
         except Exception:
             pass
+
+    def push_history(self, text: str) -> None:
+        if not text:
+            return
+        with self._lock:
+            self._history.append(text)
+
+    def get_history(self) -> list[str]:
+        with self._lock:
+            return list(self._history)

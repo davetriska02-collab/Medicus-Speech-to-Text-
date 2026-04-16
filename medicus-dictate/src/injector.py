@@ -4,7 +4,7 @@ import time
 
 import pyautogui
 import pyperclip
-from pynput.keyboard import Controller as _KbController
+from pynput.keyboard import Controller as _KbController, Key as _Key
 
 from .config import InjectionConfig
 
@@ -20,10 +20,16 @@ _keyboard = _KbController()
 
 
 class Injector:
-    """Injects text into the focused field via clipboard paste or character typing."""
+    """Injects text into the focused field via clipboard paste or character typing.
+
+    Tracks the length of the last injection so `scratch()` can delete it by
+    issuing the right number of backspaces. Note: this is only reliable if
+    the user hasn't typed or moved the cursor since the last injection.
+    """
 
     def __init__(self, cfg: InjectionConfig) -> None:
         self.cfg = cfg
+        self.last_injected_text: str = ""
 
     def inject(self, text: str) -> None:
         if not text:
@@ -34,6 +40,22 @@ class Injector:
             self._paste(text)
         else:
             self._type(text)
+        self.last_injected_text = text
+
+    def scratch(self) -> int:
+        """Delete the last injection by backspacing. Returns characters removed."""
+        text = self.last_injected_text
+        if not text:
+            return 0
+        # Backspace one event per character. Small delay avoids dropped events
+        # in fields with slow key handling.
+        for _ in range(len(text)):
+            _keyboard.press(_Key.backspace)
+            _keyboard.release(_Key.backspace)
+            time.sleep(0.003)
+        removed = len(text)
+        self.last_injected_text = ""
+        return removed
 
     def _paste(self, text: str) -> None:
         # Save existing clipboard contents so the user's copy buffer isn't clobbered.

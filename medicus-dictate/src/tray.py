@@ -68,12 +68,16 @@ class TrayApp:
         hotkey_combo: str = "",
         show_first_run_hint: bool = False,
         level_provider: Optional[Callable[[], Tuple[float, float]]] = None,
+        on_read_last: Optional[Callable[[], None]] = None,
+        on_scratch_last: Optional[Callable[[], None]] = None,
     ) -> None:
         self.bus = bus
         self.on_quit = on_quit
         self.hotkey_combo = hotkey_combo
         self.show_first_run_hint = show_first_run_hint
         self.level_provider = level_provider
+        self.on_read_last = on_read_last
+        self.on_scratch_last = on_scratch_last
 
         self._static_images = {state: _make_icon(colour) for state, (colour, _) in _STYLE.items()}
         self._rec_cache: Dict[Tuple[int, int], Image.Image] = {}
@@ -81,12 +85,40 @@ class TrayApp:
         self._stop = threading.Event()
         self._painter_thread: Optional[threading.Thread] = None
 
+        # Dynamic "Recent" submenu — built fresh each time the tray menu opens.
+        def _recent_items():
+            hist = self.bus.get_history()
+            if not hist:
+                return (pystray.MenuItem("(no dictations yet)", None, enabled=False),)
+            items = []
+            # Most-recent first.
+            for entry in reversed(hist):
+                preview = entry.replace("\n", " / ")
+                if len(preview) > 60:
+                    preview = preview[:57] + "..."
+                items.append(pystray.MenuItem(
+                    preview,
+                    # Default binding capture for `entry`.
+                    lambda icon, item, t=entry: self._copy_history_entry(t),
+                ))
+            return tuple(items)
+
+        hotkey_label = f"Hotkey: {hotkey_combo}" if hotkey_combo else "Hotkey: (unset)"
+
         self._icon = pystray.Icon(
             "medicus-dictate",
             icon=self._static_images[AppState.IDLE],
             title=_STYLE[AppState.IDLE][1],
             menu=pystray.Menu(
+                pystray.MenuItem(hotkey_label, None, enabled=False),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Show last transcription", self._show_last),
+                pystray.MenuItem("Read last aloud", self._read_last,
+                                 enabled=bool(self.on_read_last)),
+                pystray.MenuItem("Scratch last (backspace it)", self._scratch_last,
+                                 enabled=bool(self.on_scratch_last)),
+                pystray.MenuItem("Recent", pystray.Menu(_recent_items)),
+                pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Show last error", self._show_last_error),
                 pystray.Menu.SEPARATOR,
                 pystray.MenuItem("Quit", self._quit),
@@ -124,6 +156,31 @@ class TrayApp:
     def _show_last_error(self, icon, item) -> None:
         err = self.bus.last_error or "(no errors)"
         icon.notify(err[:256], "Last error")
+
+    def _read_last(self, icon, item) -> None:
+        if self.on_read_last is not None:
+            try:
+                self.on_read_last()
+            except Exception as e:
+                icon.notify(str(e)[:256], "Read failed")
+
+    def _scratch_last(self, icon, item) -> None:
+        if self.on_scratch_last is not None:
+            try:
+                self.on_scratch_last()
+            except Exception as e:
+                icon.notify(str(e)[:256], "Scratch failed")
+
+    def _copy_history_entry(self, text: str) -> None:
+        # Put the selected history entry onto the clipboard so the clinician
+        # can paste it wherever they want. Doesn't auto-inject because that
+        # could go to the wrong field.
+        try:
+            import pyperclip
+            pyperclip.copy(text)
+            self._icon.notify(text[:120], "Copied to clipboard")
+        except Exception as e:
+            self._icon.notify(str(e)[:256], "Copy failed")
 
     def _quit(self, icon, item) -> None:
         self._stop.set()

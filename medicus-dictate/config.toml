@@ -4,6 +4,9 @@
 [hotkey]
 # pynput format: <ctrl>, <alt>, <shift>, <cmd>, and letter/space keys.
 combo = "<ctrl>+<alt>+<space>"
+# Short tap toggles recording. Holding the hotkey past this threshold is
+# push-to-talk: recording runs while held, stops on release.
+hold_threshold_ms = 300
 
 [audio]
 sample_rate = 16000
@@ -11,6 +14,8 @@ channels = 1
 # Input device index. Comment out to use the system default.
 # Run `python -m sounddevice` to list devices.
 # device = 0
+# Tiny tick when the mic opens so you know it's live without looking at the tray.
+start_cue_enabled = true
 
 [model]
 # One of: tiny.en, base.en, small.en, medium.en, large-v3
@@ -21,6 +26,38 @@ device = "cpu"
 compute_type = "int8"
 # Language hint. Leave empty to auto-detect. ".en" models ignore this.
 language = "en"
+# Bias Whisper toward your vocabulary via initial_prompt. Seeded from the
+# custom dictionary (keys and values) plus extra_vocabulary below. Big
+# accuracy win for drug names, local surgery names, colleague names.
+vocabulary_boost = true
+extra_vocabulary = [
+    # "amoxicillin", "co-amoxiclav", "salbutamol",
+    # "Dr Patel", "Riverside Surgery",
+]
+
+[history]
+# How many recent dictations to keep in the tray "Recent" submenu.
+size = 5
+
+[tts]
+# "Read last" menu item and the "read that back" voice command use SAPI
+# via pyttsx3. All local; no network.
+enabled = true
+rate = 180
+voice = ""
+
+# Per-app profiles. When the foreground window's executable matches, the
+# overrides here are layered on top of the global settings for that
+# dictation. Example:
+#
+# [[profiles]]
+# exe = "emis.exe"
+# enable_bnf_frequencies = true
+# custom = { "bp" = "blood pressure", "mi" = "myocardial infarction" }
+#
+# [[profiles]]
+# exe = "systmone.exe"
+# enable_bnf_frequencies = true
 
 [injection]
 # "paste" (clipboard + Ctrl+V) or "type" (character-by-character)

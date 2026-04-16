@@ -54,6 +54,16 @@ Edit `config.toml` (inline comments). Highlights:
 - `[postprocess.custom]` — user-defined replacements for colleague names / drug
   brands that Whisper mangles.
 
+## Hotkey: tap vs hold
+
+The same hotkey does two things:
+
+- **Tap** (quick press+release) — toggles recording. Press once to start,
+  press again to stop.
+- **Hold** (past `hotkey.hold_threshold_ms`, default 300 ms) — push-to-talk.
+  Recording runs only while held, stops on release. Useful when the mic
+  shouldn't stay hot while speaking to the patient.
+
 ## Voice commands
 
 When `[commands] enabled = true` these spoken phrases become formatting
@@ -76,6 +86,45 @@ rather than literal text:
 `"period"` and `"colon"` are deliberately **not** commands — they clash with
 the menstrual/temporal "period" and anatomical "colon" in clinical dictation.
 Use `full stop` for `.` and type the colon literally.
+
+### Meta commands (whole-utterance only)
+
+These only trigger if the entire utterance is the phrase — so
+`"scratch that discharge note"` still transcribes normally.
+
+| Say | Effect |
+|---|---|
+| `scratch that` / `undo that` | Backspaces the last injected dictation out. |
+| `read that back` / `read last` | Reads the last transcription aloud via SAPI. |
+
+## Per-app profiles
+
+`[[profiles]]` in `config.toml` lets you layer different behaviour on top of
+the global config based on the foreground window's executable. Example:
+
+```toml
+[[profiles]]
+exe = "emis.exe"
+enable_bnf_frequencies = true
+custom = { "bp" = "blood pressure", "mi" = "myocardial infarction" }
+vocabulary = ["amoxicillin", "co-amoxiclav"]
+
+[[profiles]]
+exe = "systmone.exe"
+enable_bnf_frequencies = true
+```
+
+When you dictate into EMIS the profile's `custom` replacements are merged on
+top of the global dictionary, BNF shorthand kicks in, and `vocabulary` terms
+are added to Whisper's `initial_prompt` for that call — so drug names come
+out spelled correctly. Non-Windows runs never match a profile.
+
+## Vocabulary boost
+
+Whisper accepts an `initial_prompt` that biases recognition toward terms it
+expects. `[model] vocabulary_boost = true` (default) and `extra_vocabulary`
+let you seed that prompt with drug names, colleague names, and local surgery
+names. Per-app profile `vocabulary` terms layer on top per dictation.
 
 ## Smart-dictate mode
 
@@ -110,11 +159,13 @@ All three options are **local-only**. No cloud APIs.
   and a white peak bar at the bottom of the icon rises with the loudest recent
   sample. If both stay flat while you're talking, your mic is off or routed
   wrong.
-- **Silent-mic warning**: if 2s pass with no audible input after you press the
+- **Silent-mic warning**: if 3s pass with no audible input after you press the
   hotkey, a toast tells you to check the mic.
+- **Start-cue tick** on mic open (`audio.start_cue_enabled`).
 - **Transcription errors** auto-surface as toasts when they happen.
 
-Menu: *Show last transcription* · *Show last error* · *Quit*.
+Menu: *Hotkey: …* · *Show last transcription* · *Read last aloud* ·
+*Scratch last* · *Recent ▸* · *Show last error* · *Quit*.
 
 ## Requirements
 

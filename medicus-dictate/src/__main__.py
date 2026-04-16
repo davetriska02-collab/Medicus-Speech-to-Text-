@@ -4,21 +4,26 @@ Wires hotkey → recorder → transcriber → injector, with a tray icon reflect
 """
 from __future__ import annotations
 
+import re
 import sys
 import threading
 import time
 import traceback
+from dataclasses import replace
+from typing import Optional
 
+from . import app_detect
 from . import config as config_mod
 from . import postprocess
 from . import smart
 from . import voice_commands
-from .hotkey import HotkeyListener
+from .hotkey import TapHoldHotkey
 from .injector import Injector
 from .recorder import Recorder
 from .state import AppState, StateBus
 from .transcriber import Transcriber
 from .tray import TrayApp
+from .tts import TTSEngine
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -38,12 +43,13 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[medicus-dictate] config loaded: model={cfg.model.name} "
           f"device={cfg.model.device} hotkey={cfg.hotkey.combo}")
 
-    bus = StateBus()
+    bus = StateBus(history_size=cfg.history.size)
     recorder = Recorder(cfg.audio)
     transcriber = Transcriber(cfg.model)
     injector = Injector(cfg.injection)
+    tts_engine = TTSEngine(cfg.tts)
     first_run = _is_first_run()
-    # Serialises on_toggle so a fast double-press can't race around the
+    # Serialises hotkey callbacks so tap/hold events can't race around the
     # state-check -> stream-open -> state-flip sequence.
     toggle_lock = threading.Lock()
 
@@ -52,36 +58,64 @@ def main(argv: list[str] | None = None) -> int:
     transcriber.load()
     print("[medicus-dictate] model ready.")
 
-    def on_toggle() -> None:
+    # ----------------------------------------------------------- hotkey handlers
+    def _start_recording() -> bool:
+        """Open the audio stream and flip to RECORDING. Returns False on failure."""
+        try:
+            recorder.start()
+        except Exception as e:
+            msg = f"{type(e).__name__}: {e}"
+            bus.last_error = f"audio start failed: {msg}"
+            bus.toast("Medicus Dictate — mic error", msg)
+            return False
+        if cfg.audio.start_cue_enabled:
+            _beep_start()
+        bus.set(AppState.RECORDING)
+        threading.Thread(
+            target=_silence_watchdog,
+            args=(recorder, bus),
+            daemon=True,
+        ).start()
+        return True
+
+    def _stop_recording_and_process() -> None:
+        audio = recorder.stop()
+        bus.set(AppState.TRANSCRIBING)
+        threading.Thread(
+            target=_process,
+            args=(audio, transcriber, injector, tts_engine, bus, cfg),
+            daemon=True,
+        ).start()
+
+    def on_tap() -> None:
+        """Short press = toggle."""
         with toggle_lock:
             state = bus.current
             if state == AppState.IDLE:
-                # Open the stream BEFORE flipping state, so a failure (bad device,
-                # mic already held) doesn't leave us stuck in RECORDING.
-                try:
-                    recorder.start()
-                except Exception as e:
-                    msg = f"{type(e).__name__}: {e}"
-                    bus.last_error = f"audio start failed: {msg}"
-                    bus.toast("Medicus Dictate — mic error", msg)
-                    return
-                bus.set(AppState.RECORDING)
-                threading.Thread(
-                    target=_silence_watchdog,
-                    args=(recorder, bus),
-                    daemon=True,
-                ).start()
+                _start_recording()
             elif state == AppState.RECORDING:
-                audio = recorder.stop()
-                bus.set(AppState.TRANSCRIBING)
-                threading.Thread(
-                    target=_process,
-                    args=(audio, transcriber, injector, bus, cfg),
-                    daemon=True,
-                ).start()
-            # TRANSCRIBING / INJECTING: ignore toggle presses while busy.
+                _stop_recording_and_process()
 
-    listener = HotkeyListener(cfg.hotkey.combo, on_toggle)
+    def on_hold_start() -> None:
+        """Long press = push-to-talk start."""
+        with toggle_lock:
+            if bus.current == AppState.IDLE:
+                _start_recording()
+
+    def on_hold_end() -> None:
+        """Push-to-talk release."""
+        with toggle_lock:
+            if bus.current == AppState.RECORDING:
+                _stop_recording_and_process()
+
+    # ----------------------------------------------------------- wire up
+    listener = TapHoldHotkey(
+        combo=cfg.hotkey.combo,
+        on_tap=on_tap,
+        on_hold_start=on_hold_start,
+        on_hold_end=on_hold_end,
+        hold_threshold_ms=cfg.hotkey.hold_threshold_ms,
+    )
     try:
         listener.start()
     except Exception as e:
@@ -93,12 +127,24 @@ def main(argv: list[str] | None = None) -> int:
         )
         return 3
 
+    def _read_last() -> None:
+        tts_engine.speak(bus.last_transcript)
+
+    def _scratch_last_manual() -> None:
+        removed = injector.scratch()
+        if removed == 0:
+            bus.toast("Nothing to scratch", "No recent dictation to undo.")
+        else:
+            bus.toast("Scratched", f"Removed {removed} characters.")
+
     tray = TrayApp(
         bus,
         on_quit=lambda: _shutdown(listener, recorder),
         hotkey_combo=cfg.hotkey.combo,
         show_first_run_hint=first_run,
         level_provider=recorder.current_level,
+        on_read_last=_read_last,
+        on_scratch_last=_scratch_last_manual,
     )
     try:
         tray.run()  # blocks
@@ -110,20 +156,81 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-def _process(audio, transcriber, injector, bus, cfg) -> None:
-    # Clear any stale error from a previous run so the menu / toast logic only
-    # surfaces problems from this invocation.
+# --------------------------------------------------------------- meta commands
+
+_META_PUNCT_RE = re.compile(r"[^\w\s]")
+
+
+def _extract_meta_command(raw: str) -> Optional[str]:
+    """If the entire utterance is a meta-command, return a token name.
+
+    Meta commands invoke an action instead of being typed. Only triggered
+    when the utterance is the command alone — so "scratch that discharge
+    note" still transcribes normally.
+    """
+    stripped = _META_PUNCT_RE.sub("", raw).strip().lower()
+    if stripped in ("scratch that", "undo that"):
+        return "scratch"
+    if stripped in ("read that back", "read last", "read that aloud"):
+        return "read"
+    return None
+
+
+# --------------------------------------------------------------- per-app profile
+
+def _profile_for(cfg, exe: str) -> dict:
+    if not exe:
+        return {}
+    return cfg.profiles.get(exe, {}) or {}
+
+
+def _merged_postprocess_cfg(base, profile: dict):
+    custom = {**base.custom, **(profile.get("custom", {}) or {})}
+    enable_bnf = profile.get("enable_bnf_frequencies", base.enable_bnf_frequencies)
+    return replace(base, custom=custom, enable_bnf_frequencies=enable_bnf)
+
+
+def _profile_vocab(profile: dict) -> list:
+    return list(profile.get("vocabulary", []) or [])
+
+
+# --------------------------------------------------------------- pipeline
+
+def _process(audio, transcriber, injector, tts_engine, bus, cfg) -> None:
     bus.last_error = ""
     try:
-        text = transcriber.transcribe(audio)
+        # Per-app profile — pick up overrides for the focused app (if any).
+        exe = app_detect.foreground_exe_name()
+        profile = _profile_for(cfg, exe)
+        extra_vocab = _profile_vocab(profile)
+
+        raw = transcriber.transcribe(audio, extra_prompt_terms=extra_vocab)
+
+        # Meta-command handling before any formatting / injection.
+        meta = _extract_meta_command(raw)
+        if meta == "scratch":
+            removed = injector.scratch()
+            if removed:
+                bus.toast("Scratched", f"Removed {removed} characters.")
+            else:
+                bus.toast("Nothing to scratch", "No recent dictation to undo.")
+            return
+        if meta == "read":
+            tts_engine.speak(bus.last_transcript)
+            return
+
+        text = raw
         if cfg.commands.enabled:
             text = voice_commands.apply(text)
-        text = postprocess.process(text, cfg.postprocess)
+        pp_cfg = _merged_postprocess_cfg(cfg.postprocess, profile)
+        text = postprocess.process(text, pp_cfg)
         text = smart.tidy(text, cfg.smart)
+
         if not text.strip():
             bus.last_error = "no speech detected"
             return
         bus.last_transcript = text
+        bus.push_history(text)
         bus.set(AppState.INJECTING)
         injector.inject(text)
         _beep_ok()
@@ -134,7 +241,7 @@ def _process(audio, transcriber, injector, bus, cfg) -> None:
         bus.set(AppState.IDLE)
 
 
-def _shutdown(listener: HotkeyListener, recorder: Recorder) -> None:
+def _shutdown(listener, recorder: Recorder) -> None:
     try:
         listener.stop()
     except Exception:
@@ -164,7 +271,6 @@ def _mark_first_run_done() -> None:
 
 
 def _beep_ok() -> None:
-    # Non-fatal on non-Windows (winsound is Windows-only).
     try:
         import winsound
         winsound.MessageBeep(winsound.MB_OK)
@@ -172,16 +278,20 @@ def _beep_ok() -> None:
         pass
 
 
-# RMS threshold below which 2s of audio is considered silence. Typical room
-# noise is ~0.001–0.003; normal speech RMS sits around 0.03–0.1.
+def _beep_start() -> None:
+    """Brief tick when the mic opens — 'I'm listening' confirmation."""
+    try:
+        import winsound
+        winsound.Beep(900, 40)
+    except Exception:
+        pass
+
+
 _SILENCE_RMS_THRESHOLD = 0.005
-# 3s of grace so a clinician pausing to think before speaking doesn't trip
-# the warning.
 _SILENCE_TIMEOUT_S = 3.0
 
 
 def _silence_watchdog(recorder, bus) -> None:
-    """Warn once if no audible input is seen within 2s of recording start."""
     t0 = time.monotonic()
     while bus.current == AppState.RECORDING:
         if recorder.max_rms_since_start >= _SILENCE_RMS_THRESHOLD:
