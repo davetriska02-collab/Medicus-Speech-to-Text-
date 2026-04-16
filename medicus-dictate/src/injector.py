@@ -31,18 +31,24 @@ class Injector:
         except Exception:
             saved = None
 
-        pyperclip.copy(text)
+        try:
+            pyperclip.copy(text)
+        except pyperclip.PyperclipException as e:
+            raise RuntimeError(f"clipboard write failed: {e}") from e
+
         # Give the OS a moment to register the clipboard change before pasting.
         time.sleep(0.03)
-        pyautogui.hotkey("ctrl", "v")
-        # Let the paste complete before restoring the clipboard.
-        time.sleep(0.1)
-
-        if saved is not None:
-            try:
-                pyperclip.copy(saved)
-            except Exception:
-                pass
+        try:
+            pyautogui.hotkey("ctrl", "v")
+        finally:
+            # Let the paste complete before restoring the clipboard — even on error,
+            # we still want to put the user's original clipboard back.
+            time.sleep(0.1)
+            if saved is not None:
+                try:
+                    pyperclip.copy(saved)
+                except Exception:
+                    pass
 
     def _type(self, text: str) -> None:
         pyautogui.typewrite(text, interval=0.005)

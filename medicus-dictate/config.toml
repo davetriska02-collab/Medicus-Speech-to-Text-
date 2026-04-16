@@ -29,7 +29,16 @@ mode = "paste"
 pre_delay_ms = 50
 
 [postprocess]
-# Deferred to follow-up delivery (step 7). Placeholder flags below.
-enable_number_words = false
-enable_unit_abbrev = false
+# Convert number words to digits: "twenty" -> "20", "two hundred" -> "200"
+enable_number_words = true
+# Abbreviate common units: "milligrams" -> "mg", "micrograms" -> "mcg"
+enable_unit_abbrev = true
+# BNF frequency shorthand: "twice daily" -> "BD", etc.
+# Off by default because some clinicians prefer full text.
 enable_bnf_frequencies = false
+
+# Custom replacements, applied last. Case-insensitive whole-word match.
+# Useful for colleague names and drug brands Whisper mangles.
+[postprocess.custom]
+# "doctor smith" = "Dr Smith"
+# "amox" = "amoxicillin"

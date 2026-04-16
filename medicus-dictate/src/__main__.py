@@ -9,6 +9,7 @@ import threading
 import traceback
 
 from . import config as config_mod
+from . import postprocess
 from .hotkey import HotkeyListener
 from .injector import Injector
 from .recorder import Recorder
@@ -28,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
     recorder = Recorder(cfg.audio)
     transcriber = Transcriber(cfg.model)
     injector = Injector(cfg.injection)
+    first_run = _is_first_run()
 
     # Warm-load the model before accepting hotkey toggles.
     print("[medicus-dictate] loading model (first run may download ~470MB)...")
@@ -44,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
             bus.set(AppState.TRANSCRIBING)
             threading.Thread(
                 target=_process,
-                args=(audio, transcriber, injector, bus),
+                args=(audio, transcriber, injector, bus, cfg),
                 daemon=True,
             ).start()
         # TRANSCRIBING / INJECTING: ignore toggle presses while busy.
@@ -52,25 +54,33 @@ def main(argv: list[str] | None = None) -> int:
     listener = HotkeyListener(cfg.hotkey.combo, on_toggle)
     listener.start()
 
-    tray = TrayApp(bus, on_quit=lambda: _shutdown(listener, recorder))
+    tray = TrayApp(
+        bus,
+        on_quit=lambda: _shutdown(listener, recorder),
+        hotkey_combo=cfg.hotkey.combo,
+        show_first_run_hint=first_run,
+    )
     try:
         tray.run()  # blocks
     finally:
         _shutdown(listener, recorder)
+        if first_run:
+            _mark_first_run_done()
 
     return 0
 
 
-def _process(audio, transcriber: Transcriber, injector: Injector, bus: StateBus) -> None:
+def _process(audio, transcriber, injector, bus, cfg) -> None:
     try:
         text = transcriber.transcribe(audio)
+        text = postprocess.process(text, cfg.postprocess)
         if not text.strip():
             bus.last_error = "no speech detected"
-            bus.set(AppState.IDLE)
             return
         bus.last_transcript = text
         bus.set(AppState.INJECTING)
         injector.inject(text)
+        _beep_ok()
     except Exception as e:
         bus.last_error = f"{type(e).__name__}: {e}"
         traceback.print_exc()
@@ -85,6 +95,33 @@ def _shutdown(listener: HotkeyListener, recorder: Recorder) -> None:
         pass
     try:
         recorder.abort()
+    except Exception:
+        pass
+
+
+def _first_run_marker() -> "Path":
+    from pathlib import Path
+    base = Path.home() / ".medicus-dictate"
+    base.mkdir(parents=True, exist_ok=True)
+    return base / "first-run-done"
+
+
+def _is_first_run() -> bool:
+    return not _first_run_marker().exists()
+
+
+def _mark_first_run_done() -> None:
+    try:
+        _first_run_marker().touch()
+    except Exception:
+        pass
+
+
+def _beep_ok() -> None:
+    # Non-fatal on non-Windows (winsound is Windows-only).
+    try:
+        import winsound
+        winsound.MessageBeep(winsound.MB_OK)
     except Exception:
         pass
 

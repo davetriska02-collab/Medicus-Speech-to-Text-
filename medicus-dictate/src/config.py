@@ -11,7 +11,15 @@ else:
     import tomli as tomllib
 
 
-DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent.parent / "config.toml"
+def _default_config_path() -> Path:
+    # When frozen by PyInstaller, look next to the executable so the user can
+    # edit config.toml without rebuilding. Dev runs look one level above src/.
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent / "config.toml"
+    return Path(__file__).resolve().parent.parent / "config.toml"
+
+
+DEFAULT_CONFIG_PATH = _default_config_path()
 
 
 @dataclass
@@ -42,9 +50,10 @@ class InjectionConfig:
 
 @dataclass
 class PostprocessConfig:
-    enable_number_words: bool = False
-    enable_unit_abbrev: bool = False
+    enable_number_words: bool = True
+    enable_unit_abbrev: bool = True
     enable_bnf_frequencies: bool = False
+    custom: dict = field(default_factory=dict)
 
 
 @dataclass

@@ -25,10 +25,19 @@ def _make_icon(colour: str, size: int = 64) -> Image.Image:
 
 
 class TrayApp:
-    def __init__(self, bus: StateBus, on_quit: Callable[[], None]) -> None:
+    def __init__(
+        self,
+        bus: StateBus,
+        on_quit: Callable[[], None],
+        hotkey_combo: str = "",
+        show_first_run_hint: bool = False,
+    ) -> None:
         self.bus = bus
         self.on_quit = on_quit
+        self.hotkey_combo = hotkey_combo
+        self.show_first_run_hint = show_first_run_hint
         self._images = {state: _make_icon(colour) for state, (colour, _) in _STYLE.items()}
+        self._last_state = AppState.IDLE
         self._icon = pystray.Icon(
             "medicus-dictate",
             icon=self._images[AppState.IDLE],
@@ -46,6 +55,15 @@ class TrayApp:
         colour, tooltip = _STYLE[state]
         self._icon.icon = self._images[state]
         self._icon.title = tooltip
+        # Surface transcription errors as a toast when returning to idle.
+        if state == AppState.IDLE and self._last_state == AppState.TRANSCRIBING:
+            err = self.bus.last_error
+            if err:
+                try:
+                    self._icon.notify(err[:256], "Medicus Dictate — error")
+                except Exception:
+                    pass
+        self._last_state = state
 
     def _show_last(self, icon, item) -> None:
         text = self.bus.last_transcript or "(no transcription yet)"
@@ -61,5 +79,18 @@ class TrayApp:
         finally:
             icon.stop()
 
+    def _setup(self, icon: pystray.Icon) -> None:
+        icon.visible = True
+        if self.show_first_run_hint:
+            hint = (
+                f"Press {self.hotkey_combo} to start recording, "
+                "press again to stop. Transcription is pasted at the cursor. "
+                "Check Windows mic permissions if recording fails."
+            )
+            try:
+                icon.notify(hint, "Medicus Dictate ready")
+            except Exception:
+                pass
+
     def run(self) -> None:
-        self._icon.run()
+        self._icon.run(setup=self._setup)
