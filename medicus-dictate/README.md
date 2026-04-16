@@ -52,13 +52,18 @@ Edit `config.toml` (inline comments). Highlights:
 - `[postprocess.custom]` — user-defined replacements for colleague names / drug
   brands that Whisper mangles.
 
-## Tray menu
+## Tray feedback
 
-- *Show last transcription* — re-surface the most recent result as a toast.
-- *Show last error* — useful when a dictation silently didn't land.
-- *Quit*.
+- **Icon colour**: grey = idle, red = recording, amber = transcribing, teal = injecting.
+- **Live level while recording**: the red disc's brightness pulses with mic RMS,
+  and a white peak bar at the bottom of the icon rises with the loudest recent
+  sample. If both stay flat while you're talking, your mic is off or routed
+  wrong.
+- **Silent-mic warning**: if 2s pass with no audible input after you press the
+  hotkey, a toast tells you to check the mic.
+- **Transcription errors** auto-surface as toasts when they happen.
 
-Transcription errors also surface automatically as toasts when they happen.
+Menu: *Show last transcription* · *Show last error* · *Quit*.
 
 ## Requirements
 

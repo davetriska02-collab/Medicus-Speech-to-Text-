@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from enum import Enum
-from typing import Callable, List
+from typing import Callable, List, Optional
 
 
 class AppState(Enum):
@@ -21,6 +21,7 @@ class StateBus:
         self._listeners: List[Callable[[AppState], None]] = []
         self._last_transcript: str = ""
         self._last_error: str = ""
+        self._toast_handler: Optional[Callable[[str, str], None]] = None
 
     @property
     def current(self) -> AppState:
@@ -62,3 +63,17 @@ class StateBus:
     def last_error(self, value: str) -> None:
         with self._lock:
             self._last_error = value
+
+    def set_toast_handler(self, handler: Callable[[str, str], None]) -> None:
+        with self._lock:
+            self._toast_handler = handler
+
+    def toast(self, title: str, body: str) -> None:
+        with self._lock:
+            handler = self._toast_handler
+        if handler is None:
+            return
+        try:
+            handler(title, body)
+        except Exception:
+            pass

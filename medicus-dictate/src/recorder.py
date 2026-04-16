@@ -18,13 +18,34 @@ class Recorder:
         self._stream: Optional[sd.InputStream] = None
         self._chunks: "queue.Queue[np.ndarray]" = queue.Queue()
         self._lock = threading.Lock()
+        # Live level state, updated on the audio callback thread. Python
+        # float writes are atomic under the GIL so no lock needed for reads.
+        self._rms: float = 0.0
+        self._peak: float = 0.0
+        self._max_rms: float = 0.0
 
     def _callback(self, indata, frames, time_info, status) -> None:
         if status:
             # Overruns etc. are logged but not fatal.
             print(f"[recorder] stream status: {status}")
-        # Copy — the buffer is reused by sounddevice.
-        self._chunks.put(indata.copy())
+        chunk = indata.copy()
+        self._chunks.put(chunk)
+        # Update live-level counters. Decayed peak gives a VU-meter feel.
+        data = chunk.reshape(-1)
+        rms = float(np.sqrt(np.mean(data * data))) if data.size else 0.0
+        peak = float(np.max(np.abs(data))) if data.size else 0.0
+        self._rms = rms
+        self._peak = max(peak, self._peak * 0.85)
+        if rms > self._max_rms:
+            self._max_rms = rms
+
+    def current_level(self) -> tuple[float, float]:
+        """Return (rms, decayed-peak) since the last callback."""
+        return self._rms, self._peak
+
+    @property
+    def max_rms_since_start(self) -> float:
+        return self._max_rms
 
     def start(self) -> None:
         with self._lock:
@@ -33,6 +54,9 @@ class Recorder:
             # Drain any stale chunks from a previous session.
             while not self._chunks.empty():
                 self._chunks.get_nowait()
+            self._rms = 0.0
+            self._peak = 0.0
+            self._max_rms = 0.0
             self._stream = sd.InputStream(
                 samplerate=self.cfg.sample_rate,
                 channels=self.cfg.channels,

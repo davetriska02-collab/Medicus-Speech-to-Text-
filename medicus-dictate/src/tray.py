@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from typing import Callable, Dict
+import threading
+import time
+from typing import Callable, Dict, Optional, Tuple
 
 import pystray
 from PIL import Image, ImageDraw
@@ -8,7 +10,7 @@ from PIL import Image, ImageDraw
 from .state import AppState, StateBus
 
 
-# State → (fill colour, tooltip text)
+# State → (fill colour hex, tooltip text)
 _STYLE: Dict[AppState, tuple[str, str]] = {
     AppState.IDLE: ("#808080", "Medicus Dictate — idle"),
     AppState.RECORDING: ("#d62828", "Medicus Dictate — recording"),
@@ -16,11 +18,45 @@ _STYLE: Dict[AppState, tuple[str, str]] = {
     AppState.INJECTING: ("#2a9d8f", "Medicus Dictate — injecting"),
 }
 
+_ICON_SIZE = 64
+# RMS value that maps to "fully bright". Typical speech peaks ~0.2, so 0.25 is
+# a reasonable top-of-scale.
+_RMS_FULL_SCALE = 0.25
 
-def _make_icon(colour: str, size: int = 64) -> Image.Image:
+
+def _hex_to_rgb(h: str) -> Tuple[int, int, int]:
+    h = h.lstrip("#")
+    return int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+
+
+def _make_icon(colour: str, size: int = _ICON_SIZE) -> Image.Image:
     img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.ellipse((4, 4, size - 4, size - 4), fill=colour, outline="#202020", width=2)
+    return img
+
+
+def _make_recording_icon(rms_bucket: int, peak_bucket: int, size: int = _ICON_SIZE) -> Image.Image:
+    """Recording icon: red disc whose brightness tracks RMS, with a peak bar at the bottom.
+
+    rms_bucket: 0..9  — dimmer → brighter.
+    peak_bucket: 0..9 — bar width from 0 to near-full-width.
+    """
+    bright = 0.45 + 0.55 * (rms_bucket / 9.0)   # 0.45..1.0
+    r, g, b = _hex_to_rgb(_STYLE[AppState.RECORDING][0])
+    fill = (int(r * bright), int(g * bright), int(b * bright), 255)
+
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # Shrink the disc slightly to leave room for the peak bar.
+    d.ellipse((4, 4, size - 4, size - 12), fill=fill, outline="#202020", width=2)
+
+    # Peak bar: grey track + white fill proportional to peak.
+    track_y0, track_y1 = size - 8, size - 4
+    d.rectangle((4, track_y0, size - 4, track_y1), fill="#303030")
+    bar_w = int((size - 8) * (peak_bucket / 9.0))
+    if bar_w > 0:
+        d.rectangle((4, track_y0, 4 + bar_w, track_y1), fill="#ffffff")
     return img
 
 
@@ -31,16 +67,23 @@ class TrayApp:
         on_quit: Callable[[], None],
         hotkey_combo: str = "",
         show_first_run_hint: bool = False,
+        level_provider: Optional[Callable[[], Tuple[float, float]]] = None,
     ) -> None:
         self.bus = bus
         self.on_quit = on_quit
         self.hotkey_combo = hotkey_combo
         self.show_first_run_hint = show_first_run_hint
-        self._images = {state: _make_icon(colour) for state, (colour, _) in _STYLE.items()}
+        self.level_provider = level_provider
+
+        self._static_images = {state: _make_icon(colour) for state, (colour, _) in _STYLE.items()}
+        self._rec_cache: Dict[Tuple[int, int], Image.Image] = {}
         self._last_state = AppState.IDLE
+        self._stop = threading.Event()
+        self._painter_thread: Optional[threading.Thread] = None
+
         self._icon = pystray.Icon(
             "medicus-dictate",
-            icon=self._images[AppState.IDLE],
+            icon=self._static_images[AppState.IDLE],
             title=_STYLE[AppState.IDLE][1],
             menu=pystray.Menu(
                 pystray.MenuItem("Show last transcription", self._show_last),
@@ -50,21 +93,27 @@ class TrayApp:
             ),
         )
         bus.subscribe(self._on_state)
+        bus.set_toast_handler(self._toast)
 
+    # ------------------------------------------------------------------ events
     def _on_state(self, state: AppState) -> None:
-        colour, tooltip = _STYLE[state]
-        self._icon.icon = self._images[state]
+        tooltip = _STYLE[state][1]
         self._icon.title = tooltip
-        # Surface transcription errors as a toast when returning to idle.
+        if state != AppState.RECORDING:
+            self._icon.icon = self._static_images[state]
         if state == AppState.IDLE and self._last_state == AppState.TRANSCRIBING:
             err = self.bus.last_error
             if err:
-                try:
-                    self._icon.notify(err[:256], "Medicus Dictate — error")
-                except Exception:
-                    pass
+                self._toast("Medicus Dictate — error", err)
         self._last_state = state
 
+    def _toast(self, title: str, body: str) -> None:
+        try:
+            self._icon.notify(body[:256], title)
+        except Exception:
+            pass
+
+    # ----------------------------------------------------------------- actions
     def _show_last(self, icon, item) -> None:
         text = self.bus.last_transcript or "(no transcription yet)"
         icon.notify(text[:256], "Last transcription")
@@ -74,23 +123,50 @@ class TrayApp:
         icon.notify(err[:256], "Last error")
 
     def _quit(self, icon, item) -> None:
+        self._stop.set()
         try:
             self.on_quit()
         finally:
             icon.stop()
 
+    # ---------------------------------------------------------------- painter
+    def _rec_icon(self, rms: float, peak: float) -> Image.Image:
+        rms_b = max(0, min(9, int((rms / _RMS_FULL_SCALE) * 9)))
+        peak_b = max(0, min(9, int(peak * 9)))
+        key = (rms_b, peak_b)
+        cached = self._rec_cache.get(key)
+        if cached is None:
+            cached = _make_recording_icon(rms_b, peak_b)
+            self._rec_cache[key] = cached
+        return cached
+
+    def _painter_loop(self) -> None:
+        last_key: Optional[Tuple[int, int]] = None
+        while not self._stop.is_set():
+            if self._last_state == AppState.RECORDING and self.level_provider is not None:
+                rms, peak = self.level_provider()
+                rms_b = max(0, min(9, int((rms / _RMS_FULL_SCALE) * 9)))
+                peak_b = max(0, min(9, int(peak * 9)))
+                key = (rms_b, peak_b)
+                if key != last_key:
+                    self._icon.icon = self._rec_icon(rms, peak)
+                    last_key = key
+            else:
+                last_key = None
+            time.sleep(1.0 / 15.0)
+
+    # ------------------------------------------------------------------- boot
     def _setup(self, icon: pystray.Icon) -> None:
         icon.visible = True
+        self._painter_thread = threading.Thread(target=self._painter_loop, daemon=True)
+        self._painter_thread.start()
         if self.show_first_run_hint:
             hint = (
                 f"Press {self.hotkey_combo} to start recording, "
                 "press again to stop. Transcription is pasted at the cursor. "
                 "Check Windows mic permissions if recording fails."
             )
-            try:
-                icon.notify(hint, "Medicus Dictate ready")
-            except Exception:
-                pass
+            self._toast("Medicus Dictate ready", hint)
 
     def run(self) -> None:
         self._icon.run(setup=self._setup)
