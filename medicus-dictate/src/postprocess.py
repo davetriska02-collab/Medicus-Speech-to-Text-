@@ -68,8 +68,10 @@ def _parse_number_words(words: list[str]) -> int:
 
 def _replace_number_words(text: str) -> str:
     # Find contiguous runs of number words (whitespace and "and" allowed as
-    # connectors) and replace each run with the equivalent digit.
-    words = list(re.finditer(r"[A-Za-z]+", text))
+    # connectors) and replace each run with the equivalent digit. The token
+    # regex keeps apostrophised words intact so "one's" isn't treated as the
+    # number one followed by a stray "s".
+    words = list(re.finditer(r"[A-Za-z]+(?:'[A-Za-z]+)*", text))
     parts: list[str] = []
     last_end = 0
     i = 0
@@ -123,8 +125,15 @@ def _replace_bnf(text: str) -> str:
 
 def _apply_custom(text: str, custom: Dict[str, str]) -> str:
     for src, dst in custom.items():
-        # Whole-phrase, case-insensitive.
-        text = re.sub(rf"\b{re.escape(src)}\b", dst, text, flags=re.IGNORECASE)
+        # Whole-phrase, case-insensitive. `dst` is treated as a literal — using
+        # a lambda avoids re.sub interpreting backreferences (\1, \g<0>) or
+        # escape sequences a clinician might reasonably write in config.
+        text = re.sub(
+            rf"\b{re.escape(src)}\b",
+            lambda _m, _d=dst: _d,
+            text,
+            flags=re.IGNORECASE,
+        )
     return text
 
 

@@ -42,6 +42,11 @@ class Transcriber:
             language=language,
             vad_filter=True,
             beam_size=5,
+            # Each dictation is a standalone utterance. Disabling the previous-
+            # text condition dramatically reduces hallucination cascades
+            # ("thank you for watching" / "please subscribe" artefacts) on
+            # short clips with pauses.
+            condition_on_previous_text=False,
         )
         return " ".join(seg.text.strip() for seg in segments).strip()
 

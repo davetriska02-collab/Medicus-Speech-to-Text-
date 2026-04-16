@@ -41,6 +41,9 @@ def main(argv: list[str] | None = None) -> int:
     transcriber = Transcriber(cfg.model)
     injector = Injector(cfg.injection)
     first_run = _is_first_run()
+    # Serialises on_toggle so a fast double-press can't race around the
+    # state-check -> stream-open -> state-flip sequence.
+    toggle_lock = threading.Lock()
 
     # Warm-load the model before accepting hotkey toggles.
     print("[medicus-dictate] loading model (first run may download ~470MB)...")
@@ -48,35 +51,45 @@ def main(argv: list[str] | None = None) -> int:
     print("[medicus-dictate] model ready.")
 
     def on_toggle() -> None:
-        state = bus.current
-        if state == AppState.IDLE:
-            # Open the stream BEFORE flipping state, so a failure (bad device,
-            # mic already held) doesn't leave us stuck in RECORDING.
-            try:
-                recorder.start()
-            except Exception as e:
-                msg = f"{type(e).__name__}: {e}"
-                bus.last_error = f"audio start failed: {msg}"
-                bus.toast("Medicus Dictate — mic error", msg)
-                return
-            bus.set(AppState.RECORDING)
-            threading.Thread(
-                target=_silence_watchdog,
-                args=(recorder, bus),
-                daemon=True,
-            ).start()
-        elif state == AppState.RECORDING:
-            audio = recorder.stop()
-            bus.set(AppState.TRANSCRIBING)
-            threading.Thread(
-                target=_process,
-                args=(audio, transcriber, injector, bus, cfg),
-                daemon=True,
-            ).start()
-        # TRANSCRIBING / INJECTING: ignore toggle presses while busy.
+        with toggle_lock:
+            state = bus.current
+            if state == AppState.IDLE:
+                # Open the stream BEFORE flipping state, so a failure (bad device,
+                # mic already held) doesn't leave us stuck in RECORDING.
+                try:
+                    recorder.start()
+                except Exception as e:
+                    msg = f"{type(e).__name__}: {e}"
+                    bus.last_error = f"audio start failed: {msg}"
+                    bus.toast("Medicus Dictate — mic error", msg)
+                    return
+                bus.set(AppState.RECORDING)
+                threading.Thread(
+                    target=_silence_watchdog,
+                    args=(recorder, bus),
+                    daemon=True,
+                ).start()
+            elif state == AppState.RECORDING:
+                audio = recorder.stop()
+                bus.set(AppState.TRANSCRIBING)
+                threading.Thread(
+                    target=_process,
+                    args=(audio, transcriber, injector, bus, cfg),
+                    daemon=True,
+                ).start()
+            # TRANSCRIBING / INJECTING: ignore toggle presses while busy.
 
     listener = HotkeyListener(cfg.hotkey.combo, on_toggle)
-    listener.start()
+    try:
+        listener.start()
+    except Exception as e:
+        print(
+            f"[medicus-dictate] failed to register global hotkey {cfg.hotkey.combo!r}: {e}\n"
+            "Another application may already own this key combination. Edit "
+            "config.toml and restart.",
+            file=sys.stderr,
+        )
+        return 3
 
     tray = TrayApp(
         bus,
@@ -157,7 +170,9 @@ def _beep_ok() -> None:
 # RMS threshold below which 2s of audio is considered silence. Typical room
 # noise is ~0.001–0.003; normal speech RMS sits around 0.03–0.1.
 _SILENCE_RMS_THRESHOLD = 0.005
-_SILENCE_TIMEOUT_S = 2.0
+# 3s of grace so a clinician pausing to think before speaking doesn't trip
+# the warning.
+_SILENCE_TIMEOUT_S = 3.0
 
 
 def _silence_watchdog(recorder, bus) -> None:

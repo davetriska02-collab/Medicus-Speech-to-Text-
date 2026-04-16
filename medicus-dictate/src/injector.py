@@ -4,6 +4,7 @@ import time
 
 import pyautogui
 import pyperclip
+from pynput.keyboard import Controller as _KbController
 
 from .config import InjectionConfig
 
@@ -12,6 +13,10 @@ from .config import InjectionConfig
 # and drop the transcription. For a dictation tool the user can't predict
 # where their cursor is, so this check does more harm than good.
 pyautogui.FAILSAFE = False
+
+# Reused Controller; pynput.type() handles Unicode on Windows via SendInput
+# with VK_PACKET, which pyautogui.typewrite silently drops.
+_keyboard = _KbController()
 
 
 class Injector:
@@ -57,4 +62,6 @@ class Injector:
                     pass
 
     def _type(self, text: str) -> None:
-        pyautogui.typewrite(text, interval=0.005)
+        # pynput emits each character as a SendInput event, including non-ASCII
+        # (accented letters, curly quotes, en/em dashes).
+        _keyboard.type(text)
