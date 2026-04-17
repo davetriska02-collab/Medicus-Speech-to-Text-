@@ -317,9 +317,33 @@
       <p class="muted">Want it to launch automatically at sign-in?
          Drag a shortcut to <code>run.bat</code> into the Startup folder
          (<code>Win + R</code>, type <code>shell:startup</code>, Enter).</p>
-      <p class="muted">Prefer a single standalone <code>.exe</code>?
-         See the <a href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/tree/main/medicus-dictate">developer README</a>
-         for the <code>python build.py</code> path.</p>
+    </div>
+  </section>
+
+  <section id="nhs">
+    <div class="wrap">
+      <h2>Locked-down Windows (NHS, corporate)</h2>
+      <p>Many NHS trusts and corporate images block unsigned <code>.exe</code>
+         installers outright &mdash; Windows Defender, SmartScreen, or AppLocker
+         will refuse to run them and you often can't override that without admin
+         rights. <strong>This tool is deliberately designed around that
+         constraint.</strong> There are no binaries to be blocked; the app is a
+         set of Python scripts launched by batch files, both of which are
+         plain text.</p>
+      <div class="callout">
+        <p><strong>If your trust doesn't let you install Python</strong>, you
+           don't need admin rights to use a <em>portable</em> Python. Download
+           <a href="https://winpython.github.io/">WinPython</a> (64-bit), extract
+           the ZIP anywhere you have write access (Documents, Desktop), rename
+           the inner <code>python-3.x.x.amd64</code> folder to just
+           <code>python</code>, and drop it next to <code>setup.bat</code>.
+           <code>setup.bat</code> detects it automatically and uses it.</p>
+      </div>
+      <p class="muted">Whisper's speech model is downloaded from Hugging Face on
+         first launch. If your trust proxies or blocks Hugging Face, download the
+         model on a home PC and copy the <code>~\.cache\huggingface</code> folder
+         across &mdash; the app will pick it up without any further network
+         access.</p>
     </div>
   </section>
 

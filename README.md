@@ -45,6 +45,26 @@ PATH* in the installer. Everything else is double-clicks.
 To launch it automatically at sign-in, drop a shortcut to `run.bat` into
 `shell:startup` (Win+R → type `shell:startup` → Enter).
 
+### Locked-down Windows (NHS, corporate)
+
+The app is script-based (Python + batch files) rather than an `.exe`
+**precisely because** Defender / SmartScreen / AppLocker typically block
+unsigned binaries on NHS workstations and a non-admin user can't override that.
+There is no binary to be blocked.
+
+If your trust doesn't let you install Python, you don't need admin rights to
+use a **portable** Python:
+
+1. Download [WinPython](https://winpython.github.io/) (64-bit) — extract anywhere you
+   have write access (Documents, Desktop).
+2. Inside the extracted folder, rename the `python-3.x.x.amd64` folder to just `python`.
+3. Move that `python` folder next to `setup.bat`.
+4. Run `setup.bat`. It detects the portable Python and uses it automatically.
+
+The Whisper model is fetched from Hugging Face on first launch. If your trust
+proxies or blocks Hugging Face, pre-download the model on a home PC and copy
+the `~\.cache\huggingface` folder across — the app reuses whatever's already cached.
+
 ### Terminal-friendly alternative
 
 ```powershell

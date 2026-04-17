@@ -34,9 +34,14 @@ python -m src.transcriber    # transcribes out.wav
 python -m src.postprocess    # shows post-processing on sample phrases
 ```
 
-## Packaging a standalone .exe (DIY)
+## Packaging a standalone .exe (optional, unrestricted Windows only)
 
-This is build-your-own. The repository does not ship a pre-built binary.
+> **Note.** Unsigned `.exe` builds are typically blocked by Windows Defender
+> / SmartScreen / AppLocker on NHS and corporate workstations, and a
+> non-admin user can't override that. The intended deployment path for
+> locked-down Windows is the batch-file + portable-Python route documented
+> in the top-level [README](../README.md). The `.exe` is only useful on
+> unrestricted machines.
 
 ```powershell
 pip install pyinstaller
@@ -44,9 +49,8 @@ python build.py
 # -> dist/MedicusDictate.exe  +  dist/config.toml
 ```
 
-The exe reads `config.toml` next to itself, so the clinician can edit it without
-a rebuild. Windows Defender will often flag unsigned PyInstaller binaries as
-suspicious; code-signing is out of scope here.
+The exe reads `config.toml` next to itself, so the clinician can edit it
+without a rebuild. Code-signing is out of scope here.
 
 ## Configuration
 
