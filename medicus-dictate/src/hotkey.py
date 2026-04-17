@@ -32,7 +32,13 @@ class TapHoldHotkey:
         self.on_hold_start = on_hold_start
         self.on_hold_end = on_hold_end
         self.hold_threshold_s = hold_threshold_ms / 1000.0
-        self._required: Set = set(keyboard.HotKey.parse(combo))
+        try:
+            self._required: Set = set(keyboard.HotKey.parse(combo))
+        except (ValueError, TypeError) as e:
+            raise ValueError(
+                f"invalid hotkey combo {combo!r}: {e}. "
+                f"Use pynput syntax, e.g. '<ctrl>+<alt>+<space>'."
+            ) from e
         self._held: Set = set()
         self._state = "idle"  # "idle" | "down" | "hold"
         self._state_lock = threading.Lock()
@@ -80,7 +86,11 @@ class TapHoldHotkey:
     def _on_hold_threshold(self) -> None:
         fire = False
         with self._state_lock:
-            if self._state == "down":
+            # Tap-at-threshold race: the timer may fire microseconds after a
+            # release event started processing. If the keys are no longer all
+            # held, treat the press as a tap — the release callback (which
+            # raced us for the lock) will handle firing on_tap.
+            if self._state == "down" and self._held == self._required:
                 self._state = "hold"
                 fire = True
                 self._hold_timer = None
@@ -117,16 +127,3 @@ def _safe_call(fn: Callable[[], None]) -> None:
         fn()
     except Exception as e:
         print(f"[hotkey] callback failed: {e}")
-
-
-# Backwards-compatible alias. Existing callers that only care about tap
-# can still pass a single `on_toggle`.
-class HotkeyListener(TapHoldHotkey):
-    def __init__(self, combo: str, on_toggle: Callable[[], None]) -> None:
-        # No-op hold handlers; tap fires the toggle.
-        super().__init__(
-            combo=combo,
-            on_tap=on_toggle,
-            on_hold_start=lambda: None,
-            on_hold_end=lambda: None,
-        )

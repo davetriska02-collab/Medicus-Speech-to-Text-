@@ -28,12 +28,6 @@ class Transcriber:
             compute_type=self.cfg.compute_type,
         )
 
-    def set_extra_vocabulary(self, terms: Iterable[str]) -> None:
-        """Replace the per-call vocabulary bias — used by per-app profiles."""
-        self._base_prompt = (
-            _build_initial_prompt(list(terms)) if self.cfg.vocabulary_boost else ""
-        )
-
     def transcribe(self, audio: np.ndarray, extra_prompt_terms: Optional[Iterable[str]] = None) -> str:
         if self._model is None:
             self.load()
@@ -72,12 +66,18 @@ class Transcriber:
         return merged
 
 
+# Whisper's initial_prompt has a ~224-token budget. ~4 chars/token ≈ 800
+# characters; we cap a bit lower to leave headroom for the wrapper phrase.
+_PROMPT_MAX_CHARS = 700
+
+
 def _build_initial_prompt(terms: Iterable[str]) -> str:
     """Build an initial_prompt string from vocabulary terms.
 
     Whisper uses the prompt as a style/context hint, not a strict word list,
     but mentioning uncommon terms up front measurably improves their
-    recognition. We frame it as a neutral preceding sentence.
+    recognition. We frame it as a neutral preceding sentence and truncate
+    to stay within Whisper's prompt-token budget.
     """
     seen: set[str] = set()
     ordered: list[str] = []
@@ -92,7 +92,26 @@ def _build_initial_prompt(terms: Iterable[str]) -> str:
         ordered.append(s)
     if not ordered:
         return ""
-    return "Clinical dictation. Vocabulary: " + ", ".join(ordered) + "."
+    prefix = "Clinical dictation. Vocabulary: "
+    suffix = "."
+    budget = max(0, _PROMPT_MAX_CHARS - len(prefix) - len(suffix))
+    kept: list[str] = []
+    used = 0
+    for term in ordered:
+        # 2 chars for ", " separator on all but the first term.
+        cost = len(term) + (2 if kept else 0)
+        if used + cost > budget:
+            break
+        kept.append(term)
+        used += cost
+    if len(kept) < len(ordered):
+        print(
+            f"[transcriber] vocabulary truncated: {len(kept)}/{len(ordered)} "
+            f"terms fit the initial_prompt budget."
+        )
+    if not kept:
+        return ""
+    return prefix + ", ".join(kept) + suffix
 
 
 def _selftest() -> None:

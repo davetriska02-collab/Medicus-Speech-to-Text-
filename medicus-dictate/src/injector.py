@@ -6,6 +6,7 @@ import pyautogui
 import pyperclip
 from pynput.keyboard import Controller as _KbController, Key as _Key
 
+from . import app_detect
 from .config import InjectionConfig
 
 # Disable pyautogui's fail-safe: if the cursor happens to sit in a screen
@@ -19,17 +20,24 @@ pyautogui.FAILSAFE = False
 _keyboard = _KbController()
 
 
+# Sentinel returned when scratch() refuses to act because the foreground
+# window has changed since the last injection — deleting from the wrong
+# window would be destructive.
+SCRATCH_WRONG_WINDOW = -1
+
+
 class Injector:
     """Injects text into the focused field via clipboard paste or character typing.
 
-    Tracks the length of the last injection so `scratch()` can delete it by
-    issuing the right number of backspaces. Note: this is only reliable if
-    the user hasn't typed or moved the cursor since the last injection.
+    Tracks the length of the last injection and the HWND it targeted so
+    `scratch()` can safely delete it — only if the same window still has
+    focus.
     """
 
     def __init__(self, cfg: InjectionConfig) -> None:
         self.cfg = cfg
         self.last_injected_text: str = ""
+        self._last_hwnd: int = 0
 
     def inject(self, text: str) -> None:
         if not text:
@@ -41,20 +49,34 @@ class Injector:
         else:
             self._type(text)
         self.last_injected_text = text
+        # Record the target window so scratch() can verify focus hasn't moved.
+        self._last_hwnd = app_detect.foreground_hwnd()
 
     def scratch(self) -> int:
-        """Delete the last injection by backspacing. Returns characters removed."""
+        """Delete the last injection by backspacing.
+
+        Returns:
+            N  — number of characters removed.
+            0  — nothing to scratch.
+            SCRATCH_WRONG_WINDOW (-1) — focus moved; refused.
+        """
         text = self.last_injected_text
         if not text:
             return 0
-        # Backspace one event per character. Small delay avoids dropped events
-        # in fields with slow key handling.
+        current = app_detect.foreground_hwnd()
+        # If we don't know the original window (non-Windows / early failure),
+        # or the user hasn't moved focus, proceed. Otherwise refuse — we can't
+        # know where the backspaces would land.
+        if self._last_hwnd and current and current != self._last_hwnd:
+            return SCRATCH_WRONG_WINDOW
+
         for _ in range(len(text)):
             _keyboard.press(_Key.backspace)
             _keyboard.release(_Key.backspace)
             time.sleep(0.003)
         removed = len(text)
         self.last_injected_text = ""
+        self._last_hwnd = 0
         return removed
 
     def _paste(self, text: str) -> None:

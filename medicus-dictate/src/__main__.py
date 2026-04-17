@@ -18,7 +18,7 @@ from . import postprocess
 from . import smart
 from . import voice_commands
 from .hotkey import TapHoldHotkey
-from .injector import Injector
+from .injector import Injector, SCRATCH_WRONG_WINDOW
 from .recorder import Recorder
 from .state import AppState, StateBus
 from .transcriber import Transcriber
@@ -128,14 +128,14 @@ def main(argv: list[str] | None = None) -> int:
         return 3
 
     def _read_last() -> None:
-        tts_engine.speak(bus.last_transcript)
+        text = bus.last_transcript
+        if not text:
+            bus.toast("Nothing to read", "No recent dictation to read back.")
+            return
+        tts_engine.speak(text)
 
     def _scratch_last_manual() -> None:
-        removed = injector.scratch()
-        if removed == 0:
-            bus.toast("Nothing to scratch", "No recent dictation to undo.")
-        else:
-            bus.toast("Scratched", f"Removed {removed} characters.")
+        _do_scratch(injector, bus)
 
     tray = TrayApp(
         bus,
@@ -154,6 +154,21 @@ def main(argv: list[str] | None = None) -> int:
             _mark_first_run_done()
 
     return 0
+
+
+def _do_scratch(injector, bus) -> None:
+    """Shared scratch action for the voice command and the tray menu."""
+    removed = injector.scratch()
+    if removed == SCRATCH_WRONG_WINDOW:
+        bus.toast(
+            "Scratch refused",
+            "Focus has moved since the last dictation. Click back into that "
+            "window to scratch.",
+        )
+    elif removed == 0:
+        bus.toast("Nothing to scratch", "No recent dictation to undo.")
+    else:
+        bus.toast("Scratched", f"Removed {removed} characters.")
 
 
 # --------------------------------------------------------------- meta commands
@@ -209,14 +224,13 @@ def _process(audio, transcriber, injector, tts_engine, bus, cfg) -> None:
         # Meta-command handling before any formatting / injection.
         meta = _extract_meta_command(raw)
         if meta == "scratch":
-            removed = injector.scratch()
-            if removed:
-                bus.toast("Scratched", f"Removed {removed} characters.")
-            else:
-                bus.toast("Nothing to scratch", "No recent dictation to undo.")
+            _do_scratch(injector, bus)
             return
         if meta == "read":
-            tts_engine.speak(bus.last_transcript)
+            if bus.last_transcript:
+                tts_engine.speak(bus.last_transcript)
+            else:
+                bus.toast("Nothing to read", "No recent dictation to read back.")
             return
 
         text = raw
@@ -229,10 +243,13 @@ def _process(audio, transcriber, injector, tts_engine, bus, cfg) -> None:
         if not text.strip():
             bus.last_error = "no speech detected"
             return
-        bus.last_transcript = text
-        bus.push_history(text)
         bus.set(AppState.INJECTING)
         injector.inject(text)
+        # Only record as the "last" (menu / read-back / history) once the
+        # injection actually succeeded. If injector raised, the except branch
+        # takes over and none of this runs.
+        bus.last_transcript = text
+        bus.push_history(text)
         _beep_ok()
     except Exception as e:
         bus.last_error = f"{type(e).__name__}: {e}"
