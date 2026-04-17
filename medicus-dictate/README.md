@@ -1,4 +1,8 @@
-# Medicus Dictate
+# Medicus Dictate &mdash; developer documentation
+
+> **Looking for the end-user landing page?** See the top-level
+> [README](../README.md) or the HTML page under [`docs/`](../docs/index.html).
+> This file is the technical reference.
 
 Local, Windows-native voice dictation for Medicus. Press a global hotkey, talk,
 press again — the transcription (via local faster-whisper) is pasted at the
@@ -6,8 +10,9 @@ caret in whatever window has focus.
 
 ## Status
 
-All nine plan steps implemented: config + recorder + transcriber + hotkey +
-clipboard injection + tray UI + post-processing + PyInstaller build + polish.
+Source-only. **No pre-built `.exe` is released yet** — you either run it from
+source (`python -m src`) or build your own with `build.py`. All nine plan steps
+plus the follow-up feature set are implemented.
 
 ## Quick start (dev)
 
@@ -29,7 +34,9 @@ python -m src.transcriber    # transcribes out.wav
 python -m src.postprocess    # shows post-processing on sample phrases
 ```
 
-## Packaging (Windows)
+## Packaging a standalone .exe (DIY)
+
+This is build-your-own. The repository does not ship a pre-built binary.
 
 ```powershell
 pip install pyinstaller
@@ -38,7 +45,8 @@ python build.py
 ```
 
 The exe reads `config.toml` next to itself, so the clinician can edit it without
-a rebuild. Windows Defender may flag the unsigned exe; signing is out of scope.
+a rebuild. Windows Defender will often flag unsigned PyInstaller binaries as
+suspicious; code-signing is out of scope here.
 
 ## Configuration
 
