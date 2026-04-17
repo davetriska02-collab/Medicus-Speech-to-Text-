@@ -200,7 +200,8 @@
         Patient data never leaves your PC
       </span>
       <div class="cta-row">
-        <a class="btn btn-primary" href="#get-it">Get started</a>
+        <a class="btn btn-primary" href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/archive/refs/heads/main.zip">Download (ZIP)</a>
+        <a class="btn btn-secondary" href="#get-it">Setup instructions</a>
         <a class="btn btn-secondary" href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-">View on GitHub</a>
       </div>
     </div>
@@ -278,37 +279,47 @@
   <section id="get-it">
     <div class="wrap">
       <h2>Getting it running</h2>
-      <p class="muted">There's no one-click installer yet, so you'll need to set it
-         up once. About five minutes, assuming Python is already installed
-         (<a href="https://www.python.org/downloads/">download Python 3.10+</a> if not).</p>
+      <p class="muted">Three steps. You do need
+         <a href="https://www.python.org/downloads/">Python 3.10+</a> installed first
+         &mdash; make sure you tick <em>Add Python to PATH</em> in the installer.
+         Everything after that is double-clicks; no terminal required.</p>
       <ol class="steps">
         <li>
-          <h3>Clone the repository</h3>
-<pre><code>git clone https://github.com/davetriska02-collab/Medicus-Speech-to-Text-
-cd Medicus-Speech-to-Text-/medicus-dictate</code></pre>
+          <h3>Download and unzip</h3>
+          <p>Click the
+            <a href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/archive/refs/heads/main.zip">Download (ZIP)</a>
+             button, then right-click the downloaded file &rarr;
+             <em>Extract All&hellip;</em> to somewhere you'll remember
+             (Documents is fine).</p>
         </li>
         <li>
-          <h3>Install dependencies in a virtual environment</h3>
-<pre><code>python -m venv .venv
-.\.venv\Scripts\activate
-pip install -r requirements.txt</code></pre>
+          <h3>Double-click <code>setup.bat</code></h3>
+          <p>This runs once, on first install. It creates a self-contained
+             Python environment inside the folder and installs the dependencies.
+             Takes a couple of minutes. You'll see a black window with progress
+             &mdash; that's expected.</p>
         </li>
         <li>
-          <h3>Run it</h3>
-<pre><code>python -m src</code></pre>
-          <p>The first launch downloads the Whisper model (about 470&nbsp;MB).
-             This only happens once.</p>
+          <h3>Double-click <code>run.bat</code></h3>
+          <p>This starts Medicus Dictate. The first run downloads the speech
+             model (about 470&nbsp;MB) &mdash; one-off. After that, launches
+             are instant.</p>
+          <p>Look for a small grey circle in your system tray (bottom-right of
+             the screen, near the clock). You can pin it for easy access.</p>
         </li>
         <li>
           <h3>Dictate</h3>
-          <p>Press <code>Ctrl + Alt + Space</code> to start recording, press again
-             to stop. The transcription appears at your cursor.</p>
+          <p>Press <code>Ctrl + Alt + Space</code> to start recording, press
+             again to stop. The transcription appears wherever your cursor is
+             &mdash; in EMIS, an email, anywhere.</p>
         </li>
       </ol>
-      <p class="muted">Prefer a standalone <code>.exe</code>? Run
-         <code>python build.py</code> after installing PyInstaller. See the
-         <a href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/tree/main/medicus-dictate">developer README</a>
-         for the details.</p>
+      <p class="muted">Want it to launch automatically at sign-in?
+         Drag a shortcut to <code>run.bat</code> into the Startup folder
+         (<code>Win + R</code>, type <code>shell:startup</code>, Enter).</p>
+      <p class="muted">Prefer a single standalone <code>.exe</code>?
+         See the <a href="https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/tree/main/medicus-dictate">developer README</a>
+         for the <code>python build.py</code> path.</p>
     </div>
   </section>
 

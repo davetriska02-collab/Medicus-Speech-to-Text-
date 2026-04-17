@@ -27,10 +27,25 @@ Landing page with screenshots and setup walk-through:
   Optional grammar tidy via a **local** Ollama endpoint — the app refuses any
   non-private IP.
 
-## Getting it running
+## Getting it running (no-terminal route)
 
-There's no one-click installer yet. You'll need Python 3.10+ installed from
-[python.org](https://www.python.org/downloads/). About five minutes of setup.
+You need [Python 3.10+](https://www.python.org/downloads/) — tick *Add Python to
+PATH* in the installer. Everything else is double-clicks.
+
+1. **Download** the repo as a ZIP:
+   [Medicus-Speech-to-Text- main.zip](https://github.com/davetriska02-collab/Medicus-Speech-to-Text-/archive/refs/heads/main.zip).
+2. **Unzip** it anywhere (Documents is fine).
+3. **Double-click `setup.bat`** — one-off, installs the dependencies.
+4. **Double-click `run.bat`** — starts the app. The first launch downloads the
+   Whisper model (~470 MB) and takes a couple of minutes; subsequent launches
+   are instant.
+5. Press **Ctrl + Alt + Space** to record, press again to stop. Text appears at
+   your cursor.
+
+To launch it automatically at sign-in, drop a shortcut to `run.bat` into
+`shell:startup` (Win+R → type `shell:startup` → Enter).
+
+### Terminal-friendly alternative
 
 ```powershell
 git clone https://github.com/davetriska02-collab/Medicus-Speech-to-Text-
@@ -40,9 +55,6 @@ python -m venv .venv
 pip install -r requirements.txt
 python -m src
 ```
-
-Press **Ctrl + Alt + Space** to start recording, press again to stop. First run
-downloads the Whisper model (~470 MB) — one-off.
 
 Full technical documentation lives in [medicus-dictate/README.md](medicus-dictate/README.md).
 
