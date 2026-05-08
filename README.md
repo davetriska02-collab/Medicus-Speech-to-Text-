@@ -108,6 +108,16 @@ The HTML landing page is ready under `docs/`. To publish it at
 - No analytics, no crash reporting.
 - Open source and auditable — no obfuscated binaries.
 
+## Sibling project: Triska
+
+This repo also hosts **Triska** under [`triska/`](triska/) — a pre-alpha
+Chrome extension giving clinicians a Stream Deck style shortcut panel and
+recordable workflows in any browser tab. See
+[`triska/PLAN.md`](triska/PLAN.md) for the design and
+[`triska/HAZARD_LOG.md`](triska/HAZARD_LOG.md) for clinical safety tracking.
+Phase 0 only: hello-world panel, no LIVE-mode code yet. Not for clinical
+deployment.
+
 ## Licence
 
 See [LICENSE](LICENSE) once added. Pre-release; use at your own risk.
